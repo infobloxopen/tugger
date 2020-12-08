@@ -292,3 +292,34 @@ func TestHandler(t *testing.T) {
 		})
 	}
 }
+
+func Test_imageExists(t *testing.T) {
+	tests := []struct {
+		name  string
+		image string
+		want  bool
+	}{
+		{
+			name:  "happy",
+			image: "nginx",
+			want:  true,
+		},
+		{
+			name:  "doesn't exist",
+			image: "jainishshah17/nginx:notexist",
+			want:  false,
+		},
+		{
+			name:  "doesn't parse",
+			image: "doesn't parse",
+			want:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := imageExists(tt.image); got != tt.want {
+				t.Errorf("imageExists() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
