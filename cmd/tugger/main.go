@@ -214,20 +214,20 @@ func mutateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
 func handleContainer(container *v1.Container, dockerRegistryUrl string) bool {
 	log.Println("Container Image is", container.Image)
 
-	if !containsRegisty(whitelistedRegistries, container.Image) {
-		message := fmt.Sprintf("Image is not being pulled from Private Registry: %s", container.Image)
-		log.Printf(message)
-
-		newImage := dockerRegistryUrl + "/" + container.Image
-		log.Printf("Changing image registry to: %s", newImage)
-		SendSlackNotification("Changing image registry to: " + newImage + " from: " + container.Image)
-
-		container.Image = newImage
-		return true
-	} else {
+	if containsRegisty(whitelistedRegistries, container.Image) {
 		log.Printf("Image is being pulled from Private Registry: %s", container.Image)
+		return false
 	}
-	return false
+	message := fmt.Sprintf("Image is not being pulled from Private Registry: %s", container.Image)
+	log.Printf(message)
+
+	newImage := dockerRegistryUrl + "/" + container.Image
+
+	log.Printf("Changing image registry to: %s", newImage)
+	SendSlackNotification("Changing image registry to: " + newImage + " from: " + container.Image)
+
+	container.Image = newImage
+	return true
 }
 
 func validateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
