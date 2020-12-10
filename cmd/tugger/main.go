@@ -41,6 +41,7 @@ var (
 )
 
 var (
+	env                   = os.Getenv("ENV")
 	dockerRegistryUrl     = os.Getenv("DOCKER_REGISTRY_URL")
 	registrySecretName    = os.Getenv("REGISTRY_SECRET_NAME")
 	whitelistRegistries   = os.Getenv("WHITELIST_REGISTRIES")
@@ -389,6 +390,9 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 // some text and the slack channel is saved within Slack.
 func SendSlackNotification(msg string) {
 	if webhookUrl != "" {
+		if env != "" {
+			msg = fmt.Sprintf("[%s] %s", env, msg)
+		}
 		slackBody, _ := json.Marshal(SlackRequestBody{Text: msg})
 		req, err := http.NewRequest(http.MethodPost, webhookUrl, bytes.NewBuffer(slackBody))
 		if err != nil {
