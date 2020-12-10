@@ -249,12 +249,13 @@ func handleContainer(container *v1.Container, dockerRegistryUrl string) bool {
 
 	newImage := dockerRegistryUrl + "/" + container.Image
 	if ifExists && !imageExists(newImage) {
-		log.Printf("%s does not exist in private registry, skipping patching", newImage)
+		message := fmt.Sprintf("%s does not exist in private registry, skipping patching of %s", newImage, container.Name)
+		log.Print(message)
+		SendSlackNotification(message)
 		return false
 	}
 
-	log.Printf("Changing image registry to: %s", newImage)
-	SendSlackNotification("Changing image registry to: " + newImage + " from: " + container.Image)
+	log.Println("Changing image from", container.Image, "to", newImage)
 
 	container.Image = newImage
 	return true
