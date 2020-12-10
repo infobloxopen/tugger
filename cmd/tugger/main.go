@@ -18,7 +18,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -27,6 +26,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/infobloxopen/atlas-app-toolkit/logging"
+	"github.com/sirupsen/logrus"
 	"k8s.io/api/admission/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +35,7 @@ import (
 
 var (
 	ifExists    bool
+	log         *logrus.Logger
 	tlsCertFile string
 	tlsKeyFile  string
 )
@@ -60,9 +62,12 @@ type SlackRequestBody struct {
 
 func main() {
 	flag.BoolVar(&ifExists, "if-exists", false, "makes the mutation conditional on whether the mutated image name exists in the registry")
+	logLevel := flag.String("log-level", "info", "log verbosity")
 	flag.StringVar(&tlsCertFile, "tls-cert", "/etc/admission-controller/tls/tls.crt", "TLS certificate file.")
 	flag.StringVar(&tlsKeyFile, "tls-key", "/etc/admission-controller/tls/tls.key", "TLS key file.")
 	flag.Parse()
+
+	log = logging.New(*logLevel)
 
 	http.HandleFunc("/ping", healthCheck)
 	http.HandleFunc("/mutate", mutateAdmissionReviewHandler)
@@ -83,7 +88,7 @@ func mutateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
 
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Println(err)
+		log.WithError(err).WithField("body", string(data)).Error("could not parse request")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -92,13 +97,13 @@ func mutateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
 
 	ar := v1beta1.AdmissionReview{}
 	if err := json.Unmarshal(data, &ar); err != nil || ar.Request == nil {
-		log.Println(err)
+		log.WithError(err).WithField("body", string(data)).Error("could not parse request")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	namespace := ar.Request.Namespace
-	log.Printf("AdmissionReview Namespace is: %s", namespace)
+	log.Debugf("AdmissionReview Namespace is: %s", namespace)
 
 	admissionResponse := v1beta1.AdmissionResponse{Allowed: false}
 	patches := []patch{}
@@ -106,7 +111,7 @@ func mutateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
 	pod := v1.Pod{}
 	if !contains(whitelistedNamespaces, namespace) {
 		if err := json.Unmarshal(ar.Request.Object.Raw, &pod); err != nil {
-			log.Println(err)
+			log.WithError(err).WithField("object", ar.Request.Object.Raw).Error("could unmarshal pod spec")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -191,8 +196,8 @@ func mutateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
 
 		patchContent, err := json.Marshal(patches)
 		if err != nil {
-			log.Println(err)
-			w.WriteHeader(http.StatusBadRequest)
+			log.WithError(err).WithField("patches", patches).Error("could not marshal patches")
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
@@ -207,7 +212,7 @@ func mutateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
 
 	data, err = json.Marshal(ar)
 	if err != nil {
-		log.Println(err)
+		log.WithError(err).WithField("resp", ar).Error("could not marshal response")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -220,12 +225,12 @@ func mutateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
 func imageExists(image string) bool {
 	ref, err := name.ParseReference(image)
 	if err != nil {
-		log.Print(err)
+		log.WithError(err).WithField("image", image).Error("could not parse image")
 		return false
 	}
 
 	if _, err := remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain)); err != nil {
-		log.Print(err)
+		log.WithError(err).WithField("image", image).Error("could not fetch image")
 		return false
 	}
 
@@ -262,7 +267,7 @@ func validateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
 
 	data, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Println(err)
+		log.WithError(err).WithField("body", string(data)).Error("could not parse request")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -271,19 +276,19 @@ func validateAdmissionReviewHandler(w http.ResponseWriter, r *http.Request) {
 
 	ar := v1beta1.AdmissionReview{}
 	if err := json.Unmarshal(data, &ar); err != nil {
-		log.Println(err)
+		log.WithError(err).WithField("body", string(data)).Error("could not parse request")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	namespace := ar.Request.Namespace
-	log.Printf("AdmissionReview Namespace is: %s", namespace)
+	log.Debugf("AdmissionReview Namespace is: %s", namespace)
 
 	admissionResponse := v1beta1.AdmissionResponse{Allowed: true}
 	if !contains(whitelistedNamespaces, namespace) {
 		pod := v1.Pod{}
 		if err := json.Unmarshal(ar.Request.Object.Raw, &pod); err != nil {
-			log.Println(err)
+			log.WithError(err).WithField("object", ar.Request.Object.Raw).Error("could unmarshal pod spec")
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -375,7 +380,7 @@ func containsRegisty(arr []string, str string) bool {
 
 // ping responds to the request with a plain-text "Ok" message.
 func healthCheck(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Serving request: %s", r.URL.Path)
+	log.Debugf("Serving request: %s", r.URL.Path)
 	fmt.Fprintf(w, "Ok")
 }
 
@@ -386,7 +391,7 @@ func SendSlackNotification(msg string) {
 		slackBody, _ := json.Marshal(SlackRequestBody{Text: msg})
 		req, err := http.NewRequest(http.MethodPost, webhookUrl, bytes.NewBuffer(slackBody))
 		if err != nil {
-			log.Println(err)
+			log.WithError(err).Error("got error from Slack")
 		}
 
 		req.Header.Add("Content-Type", "application/json")
@@ -394,16 +399,16 @@ func SendSlackNotification(msg string) {
 		client := &http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
-			log.Println(err)
+			log.WithError(err).Error("got error from Slack")
 		}
 
 		buf := new(bytes.Buffer)
 		buf.ReadFrom(resp.Body)
 		if buf.String() != "ok" {
-			log.Println("Non-ok response returned from Slack")
+			log.WithField("resp", buf.String()).Errorln("Non-ok response returned from Slack")
 		}
 		defer resp.Body.Close()
 	} else {
-		log.Println("Slack Webhook URL is not provided")
+		log.Debugln("Slack Webhook URL is not provided")
 	}
 }
