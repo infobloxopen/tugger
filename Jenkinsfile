@@ -72,7 +72,7 @@ pipeline {
   }
   post {
     success {
-      finalizeBuild()
+       finalizeBuild()
     }
   }
 }
